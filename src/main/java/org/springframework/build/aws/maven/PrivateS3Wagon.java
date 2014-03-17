@@ -1,4 +1,4 @@
- /*
+/*
  * Copyright 2010-2011 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -38,6 +38,7 @@ import org.apache.maven.wagon.repository.Repository;
 import com.amazonaws.AmazonServiceException;
 import com.amazonaws.ClientConfiguration;
 import com.amazonaws.auth.AWSCredentials;
+import com.amazonaws.auth.AWSSessionCredentials;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3Client;
 import com.amazonaws.services.s3.internal.Mimetypes;
@@ -84,11 +85,43 @@ public final class PrivateS3Wagon extends AbstractWagon {
         this.baseDirectory = baseDirectory;
     }
 
+    protected AWSCredentials createAWSCredentials(final AuthenticationInfo authenticationInfo) {
+        return new AWSCredentials() {
+            public String getAWSAccessKeyId() {
+                return authenticationInfo.getUserName();
+            }
+            public String getAWSSecretKey() {
+                return authenticationInfo.getPassphrase();
+            }
+        };
+    }
+
+    protected AWSCredentials createAWSSessionCredentials(final AuthenticationInfo authenticationInfo) {
+        return new AWSSessionCredentials() {
+            public String getAWSAccessKeyId() {
+                return authenticationInfo.getUserName();
+            }
+            public String getAWSSecretKey() {
+                return authenticationInfo.getPassphrase();
+            }
+            public String getSessionToken() {
+                return authenticationInfo.getPrivateKey();
+            }
+        };
+    }
+
     @Override
     protected void connectToRepository(Repository repository, AuthenticationInfo authenticationInfo, ProxyInfoProvider proxyInfoProvider)
         throws AuthenticationException {
         if (this.amazonS3 == null) {
-            AWSCredentials awsCredentials = authenticationInfo == null ? null : new AuthenticationInfoAWSCredentials(authenticationInfo);
+            AWSCredentials awsCredentials;
+            if (authenticationInfo == null) {
+                awsCredentials = null;
+            } else if (authenticationInfo.getPrivateKey() == null) {
+                awsCredentials = createAWSCredentials(authenticationInfo);
+            } else {
+                awsCredentials = createAWSSessionCredentials(authenticationInfo);
+            }
             ClientConfiguration clientConfiguration = S3Utils.getClientConfiguration(proxyInfoProvider);
 
 
@@ -137,9 +170,9 @@ public final class PrivateS3Wagon extends AbstractWagon {
             Pattern pattern = Pattern.compile(String.format(RESOURCE_FORMAT, prefix));
 
             ListObjectsRequest listObjectsRequest = new ListObjectsRequest() //
-            .withBucketName(this.bucketName) //
-            .withPrefix(prefix) //
-            .withDelimiter("/");
+                .withBucketName(this.bucketName) //
+                .withPrefix(prefix) //
+                .withDelimiter("/");
 
             ObjectListing objectListing;
 
@@ -159,7 +192,7 @@ public final class PrivateS3Wagon extends AbstractWagon {
 
     @Override
     protected void getResource(String resourceName, File destination, TransferProgress transferProgress) throws TransferFailedException,
-        ResourceDoesNotExistException {
+                                                                                                                ResourceDoesNotExistException {
         InputStream in = null;
         OutputStream out = null;
         try {
@@ -182,7 +215,7 @@ public final class PrivateS3Wagon extends AbstractWagon {
 
     @Override
     protected void putResource(File source, String destination, TransferProgress transferProgress) throws TransferFailedException,
-        ResourceDoesNotExistException {
+                                                                                                          ResourceDoesNotExistException {
         String key = getKey(destination);
 
         mkdirs(key, 0);
